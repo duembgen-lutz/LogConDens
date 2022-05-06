@@ -4,13 +4,16 @@
 #############################################################
 #
 # Lutz Duembgen, Alexandre Moesching, Christof Straehl
-# June 2021
+# December 2020
 #
-# Source: 
+# Source:
+# L. Duembgen, A. Moesching, C. Straehl (2021).
 # Active Set Algorithms for Estimating Shape-Constrained
-# Density Ratios, arXiv:1808.09340
+# Density Ratios.
+# Computational Statistics and Data Analysis 163.
+# arXiv:1808.09340
 
-### Main programs ###
+### Main programs ----
 
 # Input:
 # X: Vector of observations.
@@ -192,6 +195,109 @@ LogConDens0 <- function(X, W=rep(1,length(X)),
 }
 
 
+LogConDens1 <- function(X, W=rep(1,length(X)),
+	m0=4, delta0=10^(-7), gamma0=10^(-5))
+# Same as LogConDens0, without graphics but with
+# counting of local searches and Newton steps.
+{
+	# Preparations of raw data:
+	n <- length(X)
+	if (sum(X[1:(n-1)] >= X[2:n]) == 0){
+		x <- X
+		w <- W/sum(W)
+	}else{
+		tmp <- LocalPrepareData(X,W)
+		x <- tmp$x
+		w <- tmp$w
+		n <- tmp$n
+	}
+	# Initialize knots and start with
+	# Gaussian MLE phi:
+	d <- floor((n-1)/m0)
+	knotsind <- 1 + d*(0:m0)
+	knotsind[m0+1] <- n
+	knots <- x[knotsind]
+	ww <- LocalLinearSplines2.1A(knots,x,w)
+	mu <- sum(w*x)
+	sigma <- sqrt(sum(w*(x - mu)^2))
+	phi <- log(dnorm(knots,mean=mu,sd=sigma))
+	phi <- LocalNormalize.1A(knots,phi)
+	LL <- sum(ww*phi)
+	
+	# Bookkeeping:
+	nr.local.search <- 0
+	nr.Newton <- 0
+	
+	# Prepare for first local search:
+	maxDLtau <- Inf
+	isnewknot <- rep(FALSE,length(knots))
+	delta1 <- sigma*delta0/n
+	
+	while (maxDLtau > delta1)
+	{
+		# Store current value of LL:
+		LL.old <- LL
+		
+		# New local search:
+		nr.local.search <- nr.local.search + 1
+		proposal <- LocalNewton.1A(knots,ww,phi,gamma0=gamma0)
+		nr.Newton <- nr.Newton + 1
+		iter <- 0
+		while (proposal$dirderiv > delta0/n && iter < 100)
+		{
+			phi.new <- proposal$phi.new
+			tmp <- LocalStepForward.1A(knots,phi,phi.new,
+				ww,isnewknot)
+			phi <- tmp$phi
+			if (length(phi) < length(knots)){
+				LL.ref <- -Inf
+				# Update of knots, ww and isnewknot:
+				knots     <- tmp$knots
+				ww        <- tmp$w
+				isnewknot <- tmp$isnewknot
+			}else{
+				LL.ref <- LL
+			}
+			# Update of LL:
+			LL <- sum(ww*phi)
+			if (LL > LL.ref){
+				proposal <- LocalNewton.1A(knots,ww,phi,
+					gamma0=gamma0)
+				nr.Newton <- nr.Newton + 1
+			}else{
+				proposal$dirderiv <- 0
+			}
+			iter <- iter+1
+		}
+		if (LL > LL.old){
+			# Check for global optimality:
+			DLtau <- LocalOptimality.1A(x,w,knots,phi)
+			maxDLtau <- max(DLtau)
+			if (maxDLtau > delta1){
+				# Add new knots:
+				delta2 <- max(delta1,maxDLtau*0.0001)
+				newpars <- LocalNewKnots(x,knots,phi,DLtau,delta2)
+				knots <- newpars$knots
+				phi <- newpars$phi
+				isnewknot <- newpars$isnewknot
+				ww <- LocalLinearSplines2.1A(knots,x,w)
+			}
+		}else{
+			# Stop the whole algorithm:
+			maxDLtau <- 0
+		}
+	}
+	
+	DD <- LocalLinearSplines1.1A(knots,x)
+	phix <- DD %*% phi
+	
+	return(list(knots=knots,phi=phi,x=x,w=w,
+		phix=phix,LL=LL,DLtau=DLtau,
+		nr.local.search=nr.local.search,
+		nr.Newton=nr.Newton))
+}
+
+
 LogConDens <- function(X, W=rep(1,length(X)),
 	m0=4, delta0=10^(-7), gamma0=10^(-5))
 # Computation of log-concave density estimator with
@@ -286,7 +392,7 @@ LogConDens <- function(X, W=rep(1,length(X)),
 }
 
 
-### Auxiliary programs 4:
+### Auxiliary programs 4 ----
 ### Checking for new potential knots 
 
 LocalNewKnots <- function(x,knots,phi,DLtau,delta=0)
@@ -359,7 +465,7 @@ LocalOptimality.1A <- function(x,w,knots,phi)
 }
 
 
-### Auxiliary programs 3:
+### Auxiliary programs 3 ----
 ### 2nd step size correction
 
 LocalConcavity.1A <- function(knots,phi)
@@ -458,10 +564,9 @@ LocalStepForward.1A <- function(knots,phi,phi.new,w,
 }
 
 
-### Auxiliary programs 2:
-### Normalization,
-### log-likelihood and its 1st and 2nd derivatives,
-### Newton step with 1st step size correction
+### Auxiliary programs 2 ----
+### Normalization, log-likelihood plus derivatives
+### and Newton step with 1st step size correction
 
 LocalNormalize.1A <- function(x,phi)
 # Normalize phi such that it defines
@@ -562,7 +667,7 @@ LocalNewton.1A <- function(x,w,phi,
 }
 
 
-### Auxiliary programs 1:
+### Auxiliary programs 1 ----
 ### Linear splines and
 ### basic function J(.,.) plus 1st and 2nd
 ### partial derivatives thereof.
